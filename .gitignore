@@ -1,0 +1,16 @@
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+
+# common big stuff (edit as needed)
+data/
+datasets/
+outputs/
+results/
+logs/
+checkpoints/
+models/
+weights/
+*.pt
+*.pth
+*.ckpt
