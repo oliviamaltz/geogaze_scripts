@@ -5,9 +5,14 @@ COCO JSON -> CSV
 Writes one row per annotation (unique annotations.id):
 - image_file_name (images.file_name)
 - image_id        (annotations.image_id)
-- annotation_id   (annotations.id)  <-- this is the "segmentation instance id" in COCO
+- annotation_id   (annotations.id)
 - category_id     (annotations.category_id == categories.id)
 - category_name   (categories.name)
+- bbox_x, bbox_y, bbox_w, bbox_h   (annotations.bbox, COCO pixel coords)
+- img_w, img_h                    (images.width, images.height)
+- area                            (annotations.area, if present)
+- iscrowd                         (annotations.iscrowd, if present)
+- segmentation_len                (derived; polygon length or 1 if RLE)
 """
 
 import json
@@ -25,11 +30,16 @@ def coco_to_csv(json_path: Path, out_csv: Path) -> None:
     categories = data.get("categories", [])
 
     # Lookups
-    image_id_to_filename = {
-        im.get("id"): (im.get("file_name") or im.get("filename") or "")
-        for im in images
-        if im.get("id") is not None
-    }
+    image_id_to_info = {}
+    for im in images:
+        im_id = im.get("id")
+        if im_id is None:
+            continue
+        image_id_to_info[im_id] = {
+            "file_name": (im.get("file_name") or im.get("filename") or ""),
+            "width": im.get("width"),
+            "height": im.get("height"),
+        }
 
     cat_id_to_name = {
         c.get("id"): (c.get("name") or "")
@@ -45,6 +55,14 @@ def coco_to_csv(json_path: Path, out_csv: Path) -> None:
         "annotation_id",
         "category_id",
         "category_name",
+        "bbox_x",
+        "bbox_y",
+        "bbox_w",
+        "bbox_h",
+        "img_w",
+        "img_h",
+        "area",
+        "iscrowd",
         "segmentation_len",
     ]
 
@@ -64,21 +82,46 @@ def coco_to_csv(json_path: Path, out_csv: Path) -> None:
             image_id = ann.get("image_id")
             category_id = ann.get("category_id")
 
+            # --- segmentation length (same logic as before) ---
             seg = ann.get("segmentation", None)
-            # segmentation is usually: list[list[float]] (polygons) OR RLE dict for crowds
             if isinstance(seg, list):
                 seg_len = sum(len(poly) for poly in seg if isinstance(poly, list))
             elif isinstance(seg, dict):
-                seg_len = 1  # RLE present (not polygon list)
+                seg_len = 1  # RLE present
             else:
                 seg_len = 0
 
+            # --- bbox: COCO format [x, y, w, h] in PIXELS ---
+            bbox = ann.get("bbox", None)
+            if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+                bbox_x, bbox_y, bbox_w, bbox_h = bbox[:4]
+            else:
+                bbox_x = bbox_y = bbox_w = bbox_h = ""
+
+            # --- image info (filename + size) ---
+            im_info = image_id_to_info.get(image_id, {})
+            file_name = im_info.get("file_name", "")
+            img_w = im_info.get("width", "")
+            img_h = im_info.get("height", "")
+
+            # --- optional annotation fields ---
+            area = ann.get("area", "")
+            iscrowd = ann.get("iscrowd", "")
+
             writer.writerow({
-                "image_file_name": image_id_to_filename.get(image_id, ""),
+                "image_file_name": file_name,
                 "image_id": image_id if image_id is not None else "",
                 "annotation_id": ann_id,
                 "category_id": category_id if category_id is not None else "",
                 "category_name": cat_id_to_name.get(category_id, ""),
+                "bbox_x": bbox_x,
+                "bbox_y": bbox_y,
+                "bbox_w": bbox_w,
+                "bbox_h": bbox_h,
+                "img_w": img_w,
+                "img_h": img_h,
+                "area": area,
+                "iscrowd": iscrowd,
                 "segmentation_len": seg_len,
             })
             n_rows += 1
